@@ -1,0 +1,74 @@
+import dash
+import dash_html_components as html
+import dash_core_components as dcc
+from dash.dependencies import Input, Output
+import pandas as pd
+import plotly.express as px
+
+# 读取数据
+df = pd.read_csv('/mnt/deepseeksj-工作表1.csv')
+
+# 定义一个函数来检查日期是否有效
+def is_valid_date(date_str):
+    try:
+        pd.to_datetime(date_str)
+        return True
+    except ValueError:
+        return False
+
+# 筛选出有效的日期数据
+valid_dates = df['支付日期'].apply(is_valid_date)
+df = df[valid_dates]
+
+# 将支付日期转换为日期时间类型
+df['支付日期'] = pd.to_datetime(df['支付日期'])
+
+# 分析销售额的月度趋势
+monthly_sales = df.groupby(df['支付日期'].dt.to_period('M'))['销售额'].sum().reset_index()
+monthly_sales['支付日期'] = monthly_sales['支付日期'].astype(str)
+
+# 分析不同省公司的销售额分布
+company_sales = df.groupby('省公司')['销售额'].sum().reset_index()
+
+# 分析提成的分布情况，这里将提成数据进行分组
+_, bins = pd.cut(df['提成'].dropna(), bins=10, retbins=True)
+hist = pd.cut(df['提成'].dropna(), bins=bins, labels=False).value_counts(sort=False).reset_index(name='数量')
+hist['提成区间'] = hist['提成'].apply(lambda x: f'{bins[int(x) - 1]:.2f}-{bins[int(x)]:.2f}')
+
+# 分析是否袋小满的占比
+is_dxm = df['是否袋小满'].value_counts().reset_index(name='数量')
+
+# 创建 Dash 应用
+app = dash.Dash(__name__)
+
+# 定义应用布局
+app.layout = html.Div([
+    html.H1('数据看板'),
+
+    # 销售额月度趋势图表
+    dcc.Graph(
+        id='monthly-sales-trend',
+        figure=px.line(monthly_sales, x='支付日期', y='销售额', title='销售额月度趋势')
+    ),
+
+    # 不同省公司销售额分布图表
+    dcc.Graph(
+        id='company-sales-distribution',
+        figure=px.bar(company_sales, x='省公司', y='销售额', title='不同省公司销售额分布')
+    ),
+
+    # 提成分布情况图表
+    dcc.Graph(
+        id='commission-distribution',
+        figure=px.bar(hist, x='提成区间', y='数量', title='提成分布情况')
+    ),
+
+    # 是否袋小满占比图表
+    dcc.Graph(
+        id='is-dxm-percentage',
+        figure=px.pie(is_dxm, values='数量', names='是否袋小满', title='是否袋小满占比')
+    )
+])
+
+if __name__ == '__main__':
+    app.run_server(debug=True)
